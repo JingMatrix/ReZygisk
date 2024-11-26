@@ -235,6 +235,16 @@ bool inject_on_main(int pid, const char *lib_path) {
     backup.REG_IP = (long) entry_addr;
     LOGD("invoke entry");
 
+    void *dlclose_addr = find_func_addr(local_map, map, "libdl.so", "dlclose");
+    if (dlclose_addr == NULL) return false;
+
+    args.clear();
+    args.push_back(remote_handle);
+
+    remote_call(pid, regs, (uintptr_t)dlclose_addr, (uintptr_t)libc_return_addr, args);
+
+    LOGD("dlclose done");
+
     /* restore registers */
     if (!set_regs(pid, backup)) return false;
 
