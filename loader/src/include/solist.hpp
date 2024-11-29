@@ -11,9 +11,11 @@ namespace SoList  {
   class SoInfo {
     public:
       #ifdef __LP64__
-        inline static size_t solist_next_offset = 0x30;
+        inline static size_t solist_size_offset = 0x10;
+        inline static size_t solist_next_offset = 0x28;
         constexpr static size_t solist_realpath_offset = 0x1a8;
       #else
+        inline static size_t solist_size_offset = 0x10;
         inline static size_t solist_next_offset = 0xa4;
         constexpr static size_t solist_realpath_offset = 0x174;
       #endif
@@ -39,6 +41,10 @@ namespace SoList  {
 
       void set_next(SoInfo *si) {
         *(SoInfo **) ((uintptr_t) this + solist_next_offset) = si;
+      }
+
+      void set_size(size_t size) {
+        *(size_t *) ((uintptr_t) this + solist_size_offset) = size;
       }
   };
 
@@ -89,6 +95,7 @@ namespace SoList  {
   ProtectedDataGuard::FuncType ProtectedDataGuard::ctor = NULL;
   ProtectedDataGuard::FuncType ProtectedDataGuard::dtor = NULL;
 
+  static void (*soinfo_free)(SoInfo *) = NULL;
   static bool Initialize();
 
   template<typename T>
@@ -107,11 +114,9 @@ namespace SoList  {
     for (auto iter = solist; iter; iter = iter->get_next()) {
       if (prev != NULL && iter->get_name() && iter->get_path() && strstr(iter->get_path(), target_path)) {
         SoList::ProtectedDataGuard guard;
-        prev->set_next(iter->get_next());
-        if (iter == *sonext) {
-            *sonext = prev;
-        }
         LOGI("Dropped solist record for %s loaded at %s", iter->get_name(), iter->get_path());
+        iter->set_size(0);
+        soinfo_free(iter);
       }
       prev = iter;
     }
@@ -165,15 +170,18 @@ namespace SoList  {
     SoInfo::get_realpath_sym = reinterpret_cast<decltype(SoInfo::get_realpath_sym)>(linker.getSymbAddress("__dl__ZNK6soinfo12get_realpathEv"));
     SoInfo::get_soname_sym = reinterpret_cast<decltype(SoInfo::get_soname_sym)>(linker.getSymbAddress("__dl__ZNK6soinfo10get_sonameEv"));
 
+    std::string_view soinfo_free_name = linker.findSymbolNameByPrefix("__dl__ZL11soinfo_freeP6soinfo");
+    if (soinfo_free_name.empty()) return false;
+    soinfo_free = reinterpret_cast<decltype(soinfo_free)>(linker.getSymbAddress(soinfo_free_name));
+
     for (size_t i = 0; i < 1024 / sizeof(void *); i++) {
       auto *possible_next = *(void **) ((uintptr_t) solist + i * sizeof(void *));
-      if (possible_next == somain || (vsdo != NULL && possible_next == vsdo)) {
+      if (possible_next == somain || possible_next == vsdo) {
         SoInfo::solist_next_offset = i * sizeof(void *);
-
         break;
       }
     }
 
-    return (SoInfo::get_realpath_sym != NULL && SoInfo::get_soname_sym != NULL);
+    return (SoInfo::get_realpath_sym != NULL && SoInfo::get_soname_sym != NULL && soinfo_free != NULL);
   }
 }
