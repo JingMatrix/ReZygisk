@@ -587,7 +587,7 @@ void ZygiskContext::run_modules_post() {
     if (!solist_res) {
         LOGE("Failed to initialize SoList");
     } else {
-        SoList::NullifySoName("jit-cache");
+        SoList::DropSoPath("jit-cache");
     }
 
     // Remap as well to avoid checking of /memfd:jit-cache
