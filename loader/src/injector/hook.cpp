@@ -187,6 +187,7 @@ DCL_HOOK_FUNC(int, pthread_attr_destroy, void *target) {
     LOGV("pthread_attr_destroy");
     if (should_unmap_zygisk) {
         unhook_functions();
+        SoList::DropSoPath("zygisk");
         if (should_unmap_zygisk) {
             // Because both `pthread_attr_destroy` and `dlclose` have the same function signature,
             // we can use `musttail` to let the compiler reuse our stack frame and thus
