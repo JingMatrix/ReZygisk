@@ -176,22 +176,24 @@ DCL_HOOK_FUNC(void, android_log_close) {
 
 // We cannot directly call `dlclose` to unload ourselves, otherwise when `dlclose` returns,
 // it will return to our code which has been unmapped, causing segmentation fault.
-// Instead, we hook `pthread_attr_destroy` which will be called when VM daemon threads start.
-DCL_HOOK_FUNC(int, pthread_attr_destroy, void *target) {
-    int res = old_pthread_attr_destroy((pthread_attr_t *)target);
+// Instead, we hook `pthread_attr_setstacksize` which will be called when VM daemon threads start.
+DCL_HOOK_FUNC(int, pthread_attr_setstacksize, void *target, size_t size) {
+    int res = old_pthread_attr_setstacksize((pthread_attr_t *)target, size);
+    LOGV("Call pthread_attr_setstacksize in [tid, pid]: %d, %d", gettid(), getpid());
 
     // Only perform unloading on the main thread
     if (gettid() != getpid())
         return res;
 
-    LOGV("pthread_attr_destroy");
+    LOGV("Clean zygisk reminders");
     if (should_unmap_zygisk) {
         unhook_functions();
         if (should_unmap_zygisk) {
-            // Because both `pthread_attr_destroy` and `dlclose` have the same function signature,
+            // Because both `pthread_attr_setstacksize` and `dlclose` have the same function signature,
             // we can use `musttail` to let the compiler reuse our stack frame and thus
-            // `dlclose` will directly return to the caller of `pthread_attr_destroy`.
-            [[clang::musttail]] return dlclose(self_handle);
+            // `dlclose` will directly return to the caller of `pthread_attr_setstacksize`.
+            LOGV("Unmap libzygisk.so");
+            [[clang::musttail]] return munmap(start_addr, block_size);
         }
     }
 
@@ -858,7 +860,7 @@ static void hook_unloader() {
         }
     }
 
-    PLT_HOOK_REGISTER(art_dev, art_inode, pthread_attr_destroy);
+    PLT_HOOK_REGISTER(art_dev, art_inode, pthread_attr_setstacksize);
     hook_commit();
 }
 
