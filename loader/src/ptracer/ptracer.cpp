@@ -222,11 +222,25 @@ bool inject_on_main(int pid, const char *lib_path) {
       return false;
     }
 
-    /* call injector entry(handle, path) */
+    /* find libzygisk to move it to another block */
+    map = MapInfo::Scan(std::to_string(pid));
+    void *start_addr = nullptr;
+    size_t block_size = 0;
+    for (auto &info : map) {
+        if (strstr(info.path.c_str(), "libzygisk.so")) {
+            void *addr = (void *)info.start;
+            if (start_addr == nullptr) start_addr = addr;
+            size_t size = info.end - info.start;
+            block_size += size;
+            LOGD("Found block %s: [%p-%p] with size %zu", info.path.c_str(), addr, (void *)info.end, size);
+        }
+    }
 
+    /* call injector entry(start_addr, block_size, path) */
     args.clear();
-    args.push_back(remote_handle);
+    args.push_back((uintptr_t) start_addr);
     str = push_string(pid, regs, zygiskd::GetTmpPath().c_str());
+    args.push_back(block_size);
     args.push_back((long) str);
 
     remote_call(pid, regs, injector_entry, (uintptr_t)libc_return_addr, args);
