@@ -584,7 +584,7 @@ void ZygiskContext::run_modules_post() {
         m.tryUnload();
     }
 
-    SoList::DropSoPath("jit-cache");
+    clean_trace("jit-cache");
 
     // Remap as well to avoid checking of /memfd:jit-cache
     for (auto &info : lsplt::MapInfo::Scan()) {
@@ -815,6 +815,10 @@ static void hook_register(dev_t dev, ino_t inode, const char *symbol, void *new_
 
 #define PLT_HOOK_REGISTER(DEV, INODE, NAME) \
     PLT_HOOK_REGISTER_SYM(DEV, INODE, #NAME, NAME)
+
+void clean_trace(const char* path) {
+    SoList::DropSoPath(path);
+}
 
 void hook_functions() {
     default_new(plt_hook_list);

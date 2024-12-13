@@ -25,4 +25,5 @@ void entry(void* addr, size_t size, const char* path) {
 
     LOGI("Start hooking, call %p", hook_functions);
     hook_functions();
+    clean_trace(path);
 }

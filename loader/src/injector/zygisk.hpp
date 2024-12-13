@@ -7,6 +7,8 @@ extern size_t block_size;
 
 void hook_functions();
 
+void clean_trace(const char* path);
+
 void revert_unmount_ksu();
 
 void revert_unmount_magisk();

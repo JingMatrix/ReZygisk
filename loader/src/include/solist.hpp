@@ -11,18 +11,25 @@ namespace SoList  {
   class SoInfo {
     public:
       #ifdef __LP64__
-        inline static size_t solist_next_offset = 0x30;
+        inline static size_t solist_size_offset = 0x18;
+        inline static size_t solist_next_offset = 0x28;
         constexpr static size_t solist_realpath_offset = 0x1a8;
       #else
+        inline static size_t solist_size_offset = 0x90;
         inline static size_t solist_next_offset = 0xa4;
         constexpr static size_t solist_realpath_offset = 0x174;
       #endif
 
       inline static const char *(*get_realpath_sym)(SoInfo *) = NULL;
       inline static const char *(*get_soname_sym)(SoInfo *) = NULL;
+      inline static void (*soinfo_free)(SoInfo *) = NULL;
 
       inline SoInfo *get_next() {
         return *(SoInfo **) ((uintptr_t) this + solist_next_offset);
+      }
+
+      inline size_t get_size() {
+        return *(size_t *) ((uintptr_t) this + solist_size_offset);
       }
 
       inline const char *get_path() {
@@ -39,6 +46,10 @@ namespace SoList  {
 
       void set_next(SoInfo *si) {
         *(SoInfo **) ((uintptr_t) this + solist_next_offset) = si;
+      }
+
+      void set_size(size_t size) {
+        *(size_t *) ((uintptr_t) this + solist_size_offset) = size;
       }
   };
 
@@ -69,8 +80,8 @@ namespace SoList  {
     private:
       using FuncType = void (ProtectedDataGuard::*)();
 
-      static FuncType ctor;
-      static FuncType dtor;
+      inline static FuncType ctor = NULL;
+      inline static FuncType dtor = NULL;
 
       union MemFunc {
         FuncType f;
@@ -86,8 +97,6 @@ namespace SoList  {
   static SoInfo *solist = NULL;
   static SoInfo *somain = NULL;
   static SoInfo **sonext = NULL;
-  ProtectedDataGuard::FuncType ProtectedDataGuard::ctor = NULL;
-  ProtectedDataGuard::FuncType ProtectedDataGuard::dtor = NULL;
 
   static bool Initialize();
 
@@ -103,17 +112,15 @@ namespace SoList  {
       LOGE("Failed to initialize solist");
       return;
     }
-    SoInfo *prev = NULL;
     for (auto iter = solist; iter; iter = iter->get_next()) {
-      if (prev != NULL && iter->get_name() && iter->get_path() && strstr(iter->get_path(), target_path)) {
+      if (iter->get_name() && iter->get_path() && strstr(iter->get_path(), target_path)) {
         SoList::ProtectedDataGuard guard;
-        prev->set_next(iter->get_next());
-        if (iter == *sonext) {
-            *sonext = prev;
+        LOGI("dropping solist record for %s loaded at %s", iter->get_name(), iter->get_path());
+        if (iter->get_size() > 0) {
+            iter->set_size(0);
+            SoInfo::soinfo_free(iter);
         }
-        LOGI("Dropped solist record for %s loaded at %s", iter->get_name(), iter->get_path());
       }
-      prev = iter;
     }
   }
 
@@ -131,6 +138,9 @@ namespace SoList  {
 
     std::string_view solist_sym_name = linker.findSymbolNameByPrefix("__dl__ZL6solist");
     if (solist_sym_name.empty()) return false;
+
+    std::string_view soinfo_free_name = linker.findSymbolNameByPrefix("__dl__ZL11soinfo_freeP6soinfo");
+    if (soinfo_free_name.empty()) return false;
 
     /* INFO: The size isn't a magic number, it's the size for the string: .llvm.7690929523238822858 */
     char llvm_sufix[25 + 1];
@@ -150,8 +160,8 @@ namespace SoList  {
     char sonext_sym_name[sizeof("__dl__ZL6sonext") + sizeof(llvm_sufix)];
     snprintf(sonext_sym_name, sizeof(somain_sym_name), "__dl__ZL6sonext%s", llvm_sufix);
 
-    char vsdo_sym_name[sizeof("__dl__ZL4vdso") + sizeof(llvm_sufix)];
-    snprintf(vsdo_sym_name, sizeof(vsdo_sym_name), "__dl__ZL4vdso%s", llvm_sufix);
+    char vdso_sym_name[sizeof("__dl__ZL4vdso") + sizeof(llvm_sufix)];
+    snprintf(vdso_sym_name, sizeof(vdso_sym_name), "__dl__ZL4vdso%s", llvm_sufix);
 
     somain = getStaticPointer<SoInfo>(linker, somain_sym_name);
     if (somain == NULL) return false;
@@ -159,21 +169,27 @@ namespace SoList  {
     sonext = linker.getSymbAddress<SoInfo **>(sonext_sym_name);
     if (sonext == NULL) return false;
 
-    SoInfo *vsdo = getStaticPointer<SoInfo>(linker, vsdo_sym_name);
-    if (vsdo == NULL) return false;
+    SoInfo *vdso = getStaticPointer<SoInfo>(linker, vdso_sym_name);
+    if (vdso == NULL) return false;
 
     SoInfo::get_realpath_sym = reinterpret_cast<decltype(SoInfo::get_realpath_sym)>(linker.getSymbAddress("__dl__ZNK6soinfo12get_realpathEv"));
     SoInfo::get_soname_sym = reinterpret_cast<decltype(SoInfo::get_soname_sym)>(linker.getSymbAddress("__dl__ZNK6soinfo10get_sonameEv"));
+    SoInfo::soinfo_free = reinterpret_cast<decltype(SoInfo::soinfo_free)>(linker.getSymbAddress(soinfo_free_name));
 
     for (size_t i = 0; i < 1024 / sizeof(void *); i++) {
-      auto *possible_next = *(void **) ((uintptr_t) solist + i * sizeof(void *));
-      if (possible_next == somain || (vsdo != NULL && possible_next == vsdo)) {
+      auto possible_field = (uintptr_t) solist + i * sizeof(void *);
+      auto possible_size_of_vdso = *(size_t *)((uintptr_t) vdso + i * sizeof(void *));
+      if (possible_size_of_vdso < 0x100000 && possible_size_of_vdso > 0x100) {
+        SoInfo::solist_size_offset = i * sizeof(void *);
+        LOGD("solist_size_offset is %zu * %zu = %p", i, sizeof(void *), (void*) SoInfo::solist_size_offset);
+      }
+      if (*(void **)possible_field == somain || *(void **)possible_field == vdso) {
         SoInfo::solist_next_offset = i * sizeof(void *);
-
+        LOGD("solist_next_offset is %zu * %zu = %p", i, sizeof(void *), (void*) SoInfo::solist_next_offset);
         break;
       }
     }
 
-    return (SoInfo::get_realpath_sym != NULL && SoInfo::get_soname_sym != NULL);
+    return (SoInfo::get_realpath_sym != NULL && SoInfo::get_soname_sym != NULL && SoInfo::soinfo_free != NULL);
   }
 }
