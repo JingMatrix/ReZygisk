@@ -185,14 +185,13 @@ DCL_HOOK_FUNC(int, pthread_attr_setstacksize, void *target, size_t size) {
     if (gettid() != getpid())
         return res;
 
-    LOGV("Clean zygisk reminders");
     if (should_unmap_zygisk) {
         unhook_functions();
         if (should_unmap_zygisk) {
             // Because both `pthread_attr_setstacksize` and `dlclose` have the same function signature,
             // we can use `musttail` to let the compiler reuse our stack frame and thus
             // `dlclose` will directly return to the caller of `pthread_attr_setstacksize`.
-            LOGV("Unmap libzygisk.so");
+            LOGI("unmap libzygisk.so loaded at %p with size %lu", start_addr, block_size);
             [[clang::musttail]] return munmap(start_addr, block_size);
         }
     }
@@ -817,6 +816,7 @@ static void hook_register(dev_t dev, ino_t inode, const char *symbol, void *new_
     PLT_HOOK_REGISTER_SYM(DEV, INODE, #NAME, NAME)
 
 void clean_trace(const char* path) {
+    LOGD("clean solist trace for path %s", path);
     SoList::DropSoPath(path);
 }
 

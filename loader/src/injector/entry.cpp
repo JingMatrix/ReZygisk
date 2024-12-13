@@ -23,7 +23,7 @@ void entry(void* addr, size_t size, const char* path) {
     logging::setfd(zygiskd::RequestLogcatFd());
 #endif
 
-    LOGI("Start hooking, call %p", hook_functions);
+    LOGI("start plt hooking");
     hook_functions();
     clean_trace(path);
 }
