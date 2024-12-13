@@ -226,13 +226,12 @@ bool inject_on_main(int pid, const char *lib_path) {
     MapInfo blocks[3] = {};
     size_t block_size = 0;
     map = MapInfo::Scan(std::to_string(pid));
-    int index = 0;
-    for (auto info : map) {
-        if (strstr(info.path.c_str(), "libzygisk.so")) {
-            block_size += info.end - info.start;
-            blocks[index] = info;
-            index ++;
-        }
+    for (size_t i = 0, j = 0; i < map.size(); i++) {
+      if (!strstr(map[i].path.c_str(), "libzygisk.so")) continue;
+
+      block_size += map[i].end - map[i].start;
+      blocks[j] = map[i];
+      j++;
     }
 
     /* call injector entry(start_addr, block_size, path) */
@@ -247,11 +246,6 @@ bool inject_on_main(int pid, const char *lib_path) {
     /* reset pc to entry */
     backup.REG_IP = (long) entry_addr;
 
-    if (!strstr(blocks[0].path.c_str(), "lib64")) {
-        /* A quick switch to turn off liker trace cleaning */
-        return set_regs(pid, backup);
-    }
-
     /* prepare to dlclose libzygisk.so */
     void *mmap_addr = find_func_addr(local_map, map, "libc.so", "mmap");
     if (mmap_addr == NULL) return false;
@@ -259,80 +253,82 @@ bool inject_on_main(int pid, const char *lib_path) {
     void *mremap_addr = find_func_addr(local_map, map, "libc.so", "mremap");
     if (mremap_addr == NULL) return false;
 
-    void *memcpy_addr = find_func_addr(local_map, map, "libc.so", "memcpy");
-    if (memcpy_addr == NULL) return false;
-
-    void *munmap_addr = find_func_addr(local_map, map, "libc.so", "munmap");
-    if (munmap_addr == NULL) return false;
-
-    void *mprotect_addr = find_func_addr(local_map, map, "libc.so", "mprotect");
-    if (mprotect_addr == NULL) return false;
-
-
-    /* backup libzygisk.so blocks */
-    for (int i = 0; i < 3; i++) {
-        auto info = blocks[i];
-        auto size = info.end - info.start;
-
-        args.clear();
-        args.push_back(0);
-        args.push_back(size);
-        args.push_back(info.perms | PROT_WRITE);
-        args.push_back(MAP_ANONYMOUS | MAP_SHARED);
-        args.push_back(-1);
-        args.push_back(0);
-
-        /* save backup address as offset */
-        auto backup = remote_call(pid, regs, (uintptr_t)mmap_addr, (uintptr_t)libc_return_addr, args);
-        blocks[i].offset = backup - info.start;
-        LOGD("backup block %s: [%p-%p] with size %zu to %p", info.path.c_str(), (void *)info.start, (void *)info.end, size, (void *)backup);
-
-        args.clear();
-        args.push_back(backup);
-        args.push_back(info.start);
-        args.push_back(size);
-        remote_call(pid, regs, (uintptr_t)memcpy_addr, (uintptr_t)libc_return_addr, args);
-    }
-
-    /* remap a block to test if this is allowed */
     args.clear();
-    args.push_back(blocks[0].start + blocks[0].offset);
-    args.push_back(blocks[0].end - blocks[0].start);
-    args.push_back(blocks[0].end - blocks[0].start);
+    args.push_back(0);
+    args.push_back(block_size);
+    args.push_back(PROT_NONE);
+    args.push_back(MAP_PRIVATE | MAP_ANON | MAP_ANONYMOUS | MAP_FILE);
+    args.push_back(-1);
+    args.push_back(0);
+
+    uintptr_t first_mmap_res = remote_call(pid, regs, (uintptr_t)mmap_addr, (uintptr_t)libc_return_addr, args);
+    LOGD("backup block %p with size %zu", (void *)first_mmap_res, block_size);
+
+    args.clear();
+    uintptr_t libzygisk_addr = blocks[0].start;
+    args.push_back(libzygisk_addr);
+    args.push_back(block_size);
+    args.push_back(block_size);
     args.push_back(MREMAP_FIXED | MREMAP_MAYMOVE);
-    args.push_back(blocks[0].start);
+    args.push_back(first_mmap_res);
 
-    auto result = remote_call(pid, regs, (uintptr_t)mremap_addr, (uintptr_t)libc_return_addr, args);
-    if ((void *)result == MAP_FAILED) {
-        LOGW("remap test failed from %p to %p with size %lu", (void *)(blocks[0].start + blocks[0].offset), (void *)blocks[0].start, blocks[0].end - blocks[0].start);
+    uintptr_t remap_res = remote_call(pid, regs, (uintptr_t)mremap_addr, (uintptr_t)libc_return_addr, args);
+    if ((void *)remap_res == MAP_FAILED) {
+      LOGW("remap failed from %p to %p with size %zu", (void *)libzygisk_addr, (void *)first_mmap_res, block_size);
 
-        // clean allocated backup blocks;
-        for (int i = 0; i < 3; i++) {
-            auto info = blocks[i];
-            args.clear();
-            args.push_back(info.start + info.offset);
-            args.push_back(info.end - info.start);
+      args.clear();
+      args.push_back(first_mmap_res);
+      args.push_back(block_size);
 
-            remote_call(pid, regs, (uintptr_t)munmap_addr, (uintptr_t)libc_return_addr, args);
-        }
-        return set_regs(pid, backup);
-    } else {
-        /* remap back the block used for test */
-        args.clear();
-        args.push_back(blocks[0].start);
-        args.push_back(blocks[0].end - blocks[0].start);
-        args.push_back(blocks[0].end - blocks[0].start);
-        args.push_back(MREMAP_FIXED | MREMAP_MAYMOVE);
-        args.push_back(blocks[0].start + blocks[0].offset);
-
-        auto result = remote_call(pid, regs, (uintptr_t)mremap_addr, (uintptr_t)libc_return_addr, args);
-        if ((void *)result == MAP_FAILED) {
-            LOGW("failed to remap back the test result");
-            return set_regs(pid, backup);
-        }
+      remote_call(pid, regs, (uintptr_t)mmap_addr, (uintptr_t)libc_return_addr, args);
+      return set_regs(pid, backup);
     }
 
-    /* call dlclose(handle) to clean linker trace */
+    for (int i = 0; i < 3; i++) {
+      MapInfo info = blocks[i];
+      size_t size = info.end - info.start;
+
+      args.clear();
+      args.push_back(0);
+      args.push_back(size);
+      args.push_back(PROT_NONE);
+      args.push_back(MAP_PRIVATE | MAP_ANON | MAP_ANONYMOUS | MAP_FILE);
+      args.push_back(-1);
+      args.push_back(0);
+
+      uintptr_t second_mmap_res = remote_call(pid, regs, (uintptr_t)mmap_addr, (uintptr_t)libc_return_addr, args);
+      LOGD("backup block %s: [%p-%p] with size %zu to %p", info.path.c_str(), (void *)info.start, (void *)info.end, size, (void *)second_mmap_res);
+
+      args.clear();
+      args.push_back(info.start);
+      args.push_back(size);
+      args.push_back(size);
+      args.push_back(MREMAP_FIXED | MREMAP_MAYMOVE);
+      args.push_back(second_mmap_res);
+
+      remote_call(pid, regs, (uintptr_t)mremap_addr, (uintptr_t)libc_return_addr, args);
+    }
+
+    uintptr_t min_addr = 0;
+    size_t min_size = 0;
+    for (int i = 0; i < 3; i++) {
+      if (i != 0 || blocks[i].start > min_addr) continue;
+
+      min_addr = blocks[i].start;
+      min_size = blocks[i].end - blocks[i].start;
+    }
+
+    args.clear();
+    args.push_back(min_addr);
+    args.push_back(min_size);
+    args.push_back(PROT_READ);
+    args.push_back(MAP_PRIVATE | MAP_ANON | MAP_ANONYMOUS | MAP_FILE | MAP_FIXED);
+    args.push_back(-1);
+    args.push_back(0);
+
+    uintptr_t third_mmap_res = remote_call(pid, regs, (uintptr_t)mmap_addr, (uintptr_t)libc_return_addr, args);
+    LOGD("backup block %p with size %zu", (void *)third_mmap_res, min_size);
+
     void *dlclose_addr = find_func_addr(local_map, map, "libdl.so", "dlclose");
     if (dlclose_addr == NULL) return false;
 
@@ -342,32 +338,27 @@ bool inject_on_main(int pid, const char *lib_path) {
     remote_call(pid, regs, (uintptr_t)dlclose_addr, (uintptr_t)libc_return_addr, args);
     LOGI("dlclose libzygisk.so to clean linker trace for %d", pid);
 
-    /* retore blocks from backups */
+    args.clear();
+    args.push_back(libzygisk_addr);
+    args.push_back(block_size);
+    args.push_back(block_size);
+    args.push_back(MREMAP_FIXED | MREMAP_MAYMOVE);
+    args.push_back(libzygisk_addr); /* INFO: This is likely to be wrong. */
+
+    remote_call(pid, regs, (uintptr_t)mremap_addr, (uintptr_t)libc_return_addr, args);
+
     for (int i = 0; i < 3; i++) {
-        auto info = blocks[i];
-        auto size = info.end - info.start;
+      MapInfo info = blocks[i];
+      size_t size = info.end - info.start;
 
-        auto backup = info.start + info.offset;
-        args.clear();
-        args.push_back(backup);
-        args.push_back(size);
-        args.push_back(size);
-        args.push_back(MREMAP_FIXED | MREMAP_MAYMOVE);
-        args.push_back(info.start);
+      args.clear();
+      args.push_back(info.start);
+      args.push_back(size);
+      args.push_back(size);
+      args.push_back(MREMAP_FIXED | MREMAP_MAYMOVE);
+      args.push_back(info.start);
 
-        auto restore = remote_call(pid, regs, (uintptr_t)mremap_addr, (uintptr_t)libc_return_addr, args);
-        if ((void *)restore == MAP_FAILED) {
-            LOGE("failed to restore block %s: [%p-%p] from %p with errno [%lu, %lu, %lu]", info.path.c_str(), (void*)info.start, (void*)info.end, (void*) backup, regs.REG_SP, regs.REG_IP, regs.REG_RET);
-            return false;
-        }
-
-        /* clone the info permissions */
-        args.clear();
-        args.push_back((uintptr_t) backup);
-        args.push_back(size);
-        args.push_back(info.perms | PROT_EXEC);
-
-        remote_call(pid, regs, (uintptr_t)mprotect_addr, (uintptr_t)libc_return_addr, args);
+      remote_call(pid, regs, (uintptr_t)mremap_addr, (uintptr_t)libc_return_addr, args);
     }
 
     return set_regs(pid, backup);
