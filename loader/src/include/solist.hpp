@@ -3,6 +3,7 @@
 //
 #pragma once
 
+#include <dlfcn.h>
 #include <string>
 #include "elf_util.h"
 #include "logging.h"
@@ -107,7 +108,7 @@ namespace SoList  {
     return addr == NULL ? NULL : *addr;
   }
 
-  static void DropSoPath(const char* target_path) {
+  static void DropSoPath(const char* target_path, void* handle) {
     if (solist == NULL && !Initialize()) {
       LOGE("Failed to initialize solist");
       return;
@@ -118,7 +119,11 @@ namespace SoList  {
         LOGI("dropping solist record for %s loaded at %s", iter->get_name(), iter->get_path());
         if (iter->get_size() > 0) {
             iter->set_size(0);
-            SoInfo::soinfo_free(iter);
+            if (handle != nullptr) {
+                dlclose(handle);
+            } else {
+                SoInfo::soinfo_free(iter);
+            }
         }
       }
     }

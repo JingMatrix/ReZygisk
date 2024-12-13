@@ -8,7 +8,7 @@ void *start_addr = nullptr;
 size_t block_size = 0;
 
 extern "C" [[gnu::visibility("default")]]
-void entry(void* addr, size_t size, const char* path) {
+void entry(void* self_handle, void* addr, size_t size, const char* path) {
     LOGI("Zygisk library injected, version %s", ZKSU_VERSION);
     start_addr = addr;
     block_size = size;
@@ -25,5 +25,5 @@ void entry(void* addr, size_t size, const char* path) {
 
     LOGI("Start hooking, call %p", hook_functions);
     hook_functions();
-    clean_trace(path);
+    clean_trace(path, self_handle);
 }

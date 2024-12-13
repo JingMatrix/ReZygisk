@@ -236,8 +236,9 @@ bool inject_on_main(int pid, const char *lib_path) {
         }
     }
 
-    /* call injector entry(start_addr, block_size, path) */
+    /* call injector entry(handle, start_addr, block_size, path) */
     args.clear();
+    args.push_back(remote_handle);
     args.push_back((uintptr_t) start_addr);
     str = push_string(pid, regs, zygiskd::GetTmpPath().c_str());
     args.push_back(block_size);
