@@ -176,8 +176,11 @@ namespace SoList  {
     LOGD("found symbol sonext");
 
     SoInfo *vdso = getStaticPointer<SoInfo>(linker, vdso_sym_name);
-    if (vdso == NULL) return false;
-    LOGD("found symbol vdso");
+    if (vdso != NULL) {
+        LOGD("found symbol vdso");
+    } else {
+        LOGD("symbol vdso is missing");
+    }
 
     SoInfo::get_realpath_sym = reinterpret_cast<decltype(SoInfo::get_realpath_sym)>(linker.getSymbAddress("__dl__ZNK6soinfo12get_realpathEv"));
     if (SoInfo::get_realpath_sym == NULL) return false;
@@ -194,12 +197,12 @@ namespace SoList  {
 
     for (size_t i = 0; i < 1024 / sizeof(void *); i++) {
       auto possible_field = (uintptr_t) solist + i * sizeof(void *);
-      auto possible_size_of_vdso = *(size_t *)((uintptr_t) vdso + i * sizeof(void *));
-      if (possible_size_of_vdso < 0x100000 && possible_size_of_vdso > 0x100) {
+      auto possible_size_of_somain = *(size_t *)((uintptr_t) somain + i * sizeof(void *));
+      if (possible_size_of_somain < 0x100000 && possible_size_of_somain > 0x100) {
         SoInfo::solist_size_offset = i * sizeof(void *);
         LOGD("solist_size_offset is %zu * %zu = %p", i, sizeof(void *), (void*) SoInfo::solist_size_offset);
       }
-      if (*(void **)possible_field == somain || *(void **)possible_field == vdso) {
+      if (*(void **)possible_field == somain || (vdso != NULL && *(void **)possible_field == vdso)) {
         SoInfo::solist_next_offset = i * sizeof(void *);
         LOGD("solist_next_offset is %zu * %zu = %p", i, sizeof(void *), (void*) SoInfo::solist_next_offset);
         break;
