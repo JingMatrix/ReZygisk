@@ -583,80 +583,7 @@ void ZygiskContext::run_modules_post() {
         m.tryUnload();
     }
 
-    clean_trace("jit-cache");
-
-    // Remap as well to avoid checking of /memfd:jit-cache
-    for (auto &info : lsplt::MapInfo::Scan()) {
-        if (strstr(info.path.c_str(), "jit-cache-zygisk"))
-        {
-            void *addr = (void *)info.start;
-            size_t size = info.end - info.start;
-            // MAP_SHARED should fix the suspicious mapping.
-            void *copy = mmap(nullptr, size, PROT_WRITE, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
-            if (copy == MAP_FAILED) {
-                LOGE("Failed to mmap jit-cache-zygisk");
-                continue;
-            }
-
-            if ((info.perms & PROT_READ) == 0) {
-                mprotect(addr, size, PROT_READ);
-            }
-            memcpy(copy, addr, size);
-            mremap(copy, size, size, MREMAP_MAYMOVE | MREMAP_FIXED, addr);
-            mprotect(addr, size, info.perms);
-        }
-    }
-
-    // Don't know if there's a header for things like this
-    // so I just put it into a lambda
-    auto generateRandomString = [](char *str, int length) {
-        const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        srand(time(NULL));
-
-        for (int i = 0; i < length; i++) {
-            int key = rand() % (sizeof(charset) - 1);
-            str[i] = charset[key];
-        }
-
-        str[length] = '\0';
-    };
-
-    // Randomize name of anonymous mappings
-    // We don't run this in the previous loop because LSPosed might also add
-    // mappings that are not related to /memfd:jit-zygisk-cache
-    //
-    // Since we changed to MAP_SHARED, I don't think this is still needed but let's
-    // leave it here just in case.
-    for (auto info : lsplt::MapInfo::Scan()) {
-        // I had some problems with info.perms & PROT_EXEC so I had to change lsplt source a bit.
-        // If that problem occurs here, do strchr(info.perms_str.c_str(), 'x') instead and add perms_str
-        // to the lsplt MapInfo struct and set it to the raw perms string in Scan();
-        if (info.perms & PROT_EXEC && info.path.empty()) {
-            // Generate Random Name
-            char randomString[11];
-            generateRandomString(randomString, 10);
-            LOGI("Randomized Memory map name: %s", randomString);
-
-            // Memory address of random string
-            uintptr_t strAddr = (uintptr_t)&randomString;
-
-            // https://lore.kernel.org/lkml/1383170047-21074-2-git-send-email-ccross@android.com/
-            prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, info.start, info.end - info.start, strAddr);
-        }
-
-        // Remap as MAP_SHARED
-        if (info.perms & PROT_EXEC && info.dev == 0 && info.path.find("anon") != std::string::npos) {
-            void *addr = reinterpret_cast<void *>(info.start);
-            size_t size = info.end - info.start;
-            void *copy = mmap(nullptr, size, PROT_WRITE, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
-            if ((info.perms & PROT_READ) == 0) {
-                mprotect(addr, size, PROT_READ);
-            }
-            memcpy(copy, addr, size);
-            mremap(copy, size, size, MREMAP_MAYMOVE | MREMAP_FIXED, addr);
-            mprotect(addr, size, info.perms);
-        }
-    }
+    clean_trace("jit-cache-zygisk", true);
 }
 
 /* Zygisksu changed: Load module fds */
@@ -815,9 +742,35 @@ static void hook_register(dev_t dev, ino_t inode, const char *symbol, void *new_
 #define PLT_HOOK_REGISTER(DEV, INODE, NAME) \
     PLT_HOOK_REGISTER_SYM(DEV, INODE, #NAME, NAME)
 
-void clean_trace(const char* path) {
-    LOGD("clean solist trace for path %s", path);
-    SoList::DropSoPath(path);
+void clean_trace(const char* path, bool spoof_maps) {
+    LOGD("cleaning trace for path %s", path);
+
+    if (!SoList::DropSoPath(path) || !spoof_maps) {
+        return;
+    }
+
+    LOGD("spoofing virtual maps for %s", path);
+    // spoofing map names is futile in Android, we do it simply
+    // to avoid Zygisk detections based on string comparison
+    for (auto &info : lsplt::MapInfo::Scan()) {
+        if (strstr(info.path.c_str(), path))
+        {
+            void *addr = (void *)info.start;
+            size_t size = info.end - info.start;
+            void *copy = mmap(nullptr, size, PROT_WRITE, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+            if (copy == MAP_FAILED) {
+                LOGE("failed to backup block %s [%p, %p]", info.path.c_str(), addr, (void*)info.end);
+                continue;
+            }
+
+            if ((info.perms & PROT_READ) == 0) {
+                mprotect(addr, size, PROT_READ);
+            }
+            memcpy(copy, addr, size);
+            mremap(copy, size, size, MREMAP_MAYMOVE | MREMAP_FIXED, addr);
+            mprotect(addr, size, info.perms);
+        }
+    }
 }
 
 void hook_functions() {

@@ -7,7 +7,7 @@ extern size_t block_size;
 
 void hook_functions();
 
-void clean_trace(const char* path);
+void clean_trace(const char* path, bool spoof_maps = false);
 
 void revert_unmount_ksu();
 

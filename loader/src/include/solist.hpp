@@ -107,10 +107,11 @@ namespace SoList  {
     return addr == NULL ? NULL : *addr;
   }
 
-  static void DropSoPath(const char* target_path) {
+  static bool DropSoPath(const char* target_path) {
+    bool path_found = false;
     if (solist == NULL && !Initialize()) {
       LOGE("Failed to initialize solist");
-      return;
+      return path_found;
     }
     for (auto iter = solist; iter; iter = iter->get_next()) {
       if (iter->get_name() && iter->get_path() && strstr(iter->get_path(), target_path)) {
@@ -119,9 +120,11 @@ namespace SoList  {
         if (iter->get_size() > 0) {
             iter->set_size(0);
             SoInfo::soinfo_free(iter);
+            path_found = true;
         }
       }
     }
+    return path_found;
   }
 
   static bool Initialize() {
