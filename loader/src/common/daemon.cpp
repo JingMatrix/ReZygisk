@@ -7,7 +7,6 @@
 #include <fcntl.h>
 
 #include "daemon.h"
-#include "dl.h"
 #include "socket_utils.h"
 
 namespace zygiskd {
@@ -74,6 +73,66 @@ namespace zygiskd {
     socket_utils::write_u8(fd, (uint8_t) SocketAction::RequestLogcatFd);
 
     return fd;
+  }
+
+  int SetUpArt(size_t dev, size_t inode) {
+    int fd = Connect(1);
+    if (fd == -1) {
+      PLOGE("SetArtDev");
+
+      return -1;
+    }
+
+    LOGD("setting up libart [%zu, %zu]", dev, inode);
+    socket_utils::write_u8(fd, (uint8_t) SocketAction::SetArtDev);
+    socket_utils::write_usize(fd, dev);
+    close(fd);
+
+    fd = Connect(1);
+    if (fd == -1) {
+      PLOGE("SetArtInode");
+
+      return -1;
+    }
+
+    socket_utils::write_u8(fd, (uint8_t) SocketAction::SetArtInode);
+    socket_utils::write_usize(fd, inode);
+
+    close(fd);
+
+    return 0;
+  }
+
+  size_t GetArtDev() {
+    int fd = Connect(1);
+    if (fd == -1) {
+      PLOGE("GetArtDev");
+
+      return 0;
+    }
+
+    socket_utils::write_u8(fd, (uint8_t) SocketAction::GetArtDev);
+    size_t dev = socket_utils::read_usize(fd);
+
+    close(fd);
+
+    return dev;
+  }
+
+  size_t GetArtInode() {
+    int fd = Connect(1);
+    if (fd == -1) {
+      PLOGE("GetArtInode");
+
+      return 0;
+    }
+
+    socket_utils::write_u8(fd, (uint8_t) SocketAction::GetArtInode);
+    size_t inode = socket_utils::read_usize(fd);
+
+    close(fd);
+
+    return inode;
   }
 
   uint32_t GetProcessFlags(uid_t uid) {

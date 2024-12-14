@@ -73,6 +73,10 @@ namespace zygiskd {
     enum class SocketAction {
         PingHeartBeat,
         RequestLogcatFd,
+        GetArtDev,
+        SetArtDev,
+        GetArtInode,
+        SetArtInode,
         GetProcessFlags,
         GetInfo,
         ReadModules,
@@ -83,6 +87,12 @@ namespace zygiskd {
     };
 
     void Init(const char *path);
+
+    int SetUpArt(size_t dev, size_t inode);
+
+    size_t GetArtDev();
+
+    size_t GetArtInode();
 
     std::string GetTmpPath();
 

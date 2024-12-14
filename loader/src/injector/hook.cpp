@@ -28,7 +28,7 @@
 
 using namespace std;
 
-static void hook_unloader();
+static void hook_unloader(size_t art_dev, size_t art_inode);
 static void unhook_functions();
 
 namespace {
@@ -71,6 +71,8 @@ struct ZygiskContext {
     uint32_t info_flags;
     bitset<MAX_FD_SIZE> allowed_fds;
     vector<int> exempted_fds;
+    size_t art_dev = 0;
+    size_t art_inode = 0;
 
     struct RegisterInfo {
         regex_t regex;
@@ -98,6 +100,8 @@ struct ZygiskContext {
     /* Zygisksu changed: Load module fds */
     void run_modules_pre();
     void run_modules_post();
+    void prepare_art_hook();
+
     DCL_PRE_POST(fork)
     DCL_PRE_POST(app_specialize)
     DCL_PRE_POST(nativeForkAndSpecialize)
@@ -550,6 +554,22 @@ void ZygiskContext::fork_post() {
     g_ctx = nullptr;
 }
 
+void ZygiskContext::prepare_art_hook() {
+    art_dev = zygiskd::GetArtDev();
+    art_inode = zygiskd::GetArtInode();
+
+    if (art_dev == 0 || art_inode == 0) {
+        for (auto &map : lsplt::MapInfo::Scan()) {
+            if (map.path.ends_with("/libart.so")) {
+                art_dev = map.dev;
+                art_inode = map.inode;
+                break;
+            }
+        }
+        zygiskd::SetUpArt(art_dev, art_inode);
+    }
+}
+
 /* Zygisksu changed: Load module fds */
 void ZygiskContext::run_modules_pre() {
     auto ms = zygiskd::ReadModules();
@@ -600,6 +620,7 @@ void ZygiskContext::app_specialize_pre() {
 
         setenv("ZYGISK_ENABLED", "1", 1);
     } else {
+        prepare_art_hook();
         run_modules_pre();
     }
 }
@@ -647,6 +668,7 @@ void ZygiskContext::nativeForkSystemServer_pre() {
     if (pid != 0)
         return;
 
+    prepare_art_hook();
     run_modules_pre();
     zygiskd::SystemServerStarted();
 
@@ -656,6 +678,8 @@ void ZygiskContext::nativeForkSystemServer_pre() {
 void ZygiskContext::nativeForkSystemServer_post() {
     if (pid == 0) {
         LOGV("post forkSystemServer");
+
+
         run_modules_post();
     }
     fork_post();
@@ -714,7 +738,8 @@ ZygiskContext::~ZygiskContext() {
         m.clearApi();
     }
 
-    hook_unloader();
+    LOGD("hook_unloader with libart.so [dev, inode]: %lu, %lu", art_dev, art_inode);
+    hook_unloader(art_dev, art_inode);
 }
 
 } // namespace
@@ -805,18 +830,11 @@ void hook_functions() {
             plt_hook_list->end());
 }
 
-static void hook_unloader() {
-    ino_t art_inode = 0;
-    dev_t art_dev = 0;
-
-    for (auto &map : lsplt::MapInfo::Scan()) {
-        if (map.path.ends_with("/libart.so")) {
-            art_inode = map.inode;
-            art_dev = map.dev;
-            break;
-        }
+static void hook_unloader(size_t art_dev, size_t art_inode) {
+    if (art_dev == 0 || art_inode == 0) {
+        LOGE("dev or inode for libart.so is not initialized");
+        return;
     }
-
     PLT_HOOK_REGISTER(art_dev, art_inode, pthread_attr_setstacksize);
     hook_commit();
 }

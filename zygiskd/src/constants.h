@@ -27,6 +27,10 @@
 enum DaemonSocketAction {
   PingHeartbeat,
   RequestLogcatFd,
+  GetArtDev,
+  SetArtDev,
+  GetArtInode,
+  SetArtInode,
   GetProcessFlags,
   GetInfo,
   ReadModules,

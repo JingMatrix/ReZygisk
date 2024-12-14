@@ -320,6 +320,8 @@ void zygiskd_start(char *restrict argv[]) {
             for the context, causing it to have garbage values. In response
             to that, "= { 0 }" is used to ensure that the values are clean. */
   struct Context context = { 0 };
+  size_t art_dev = 0;
+  size_t art_inode = 0;
 
   struct root_impl impl;
   get_impl(&impl);
@@ -494,6 +496,30 @@ void zygiskd_start(char *restrict argv[]) {
         }
 
         __android_log_print(level, tag, "%.*s", (int)ret, message);
+
+        break;
+      }
+      case GetArtDev: {
+        ssize_t ret = write_size_t(client_fd, art_dev);
+        ASSURE_SIZE_WRITE_BREAK("GetArtDev", "art_dev", ret, sizeof(art_dev));
+
+        break;
+      }
+      case SetArtDev: {
+        ssize_t ret = read_size_t(client_fd, &art_dev);
+        ASSURE_SIZE_READ_BREAK("SetArtDev", "art_dev", ret, sizeof(art_dev));
+
+        break;
+      }
+      case GetArtInode: {
+        ssize_t ret = write_size_t(client_fd, art_inode);
+        ASSURE_SIZE_WRITE_BREAK("GetArtInode", "art_inode", ret, sizeof(art_inode));
+
+        break;
+      }
+      case SetArtInode: {
+        ssize_t ret = read_size_t(client_fd, &art_inode);
+        ASSURE_SIZE_READ_BREAK("SetArtInode", "art_inode", ret, sizeof(art_inode));
 
         break;
       }
