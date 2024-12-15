@@ -3,6 +3,10 @@
 //
 #pragma once
 
+#include <sys/stat.h>
+
+#include <lsplt.hpp>
+
 #include <string>
 #include "elf_util.h"
 #include "logging.h"
@@ -13,10 +17,12 @@ namespace SoList  {
       #ifdef __LP64__
         inline static size_t solist_size_offset = 0x18;
         inline static size_t solist_next_offset = 0x28;
+        inline static size_t solist_base_offset = 0x10;
         constexpr static size_t solist_realpath_offset = 0x1a8;
       #else
         inline static size_t solist_size_offset = 0x90;
         inline static size_t solist_next_offset = 0xa4;
+        inline static size_t solist_base_offset = 0x86;
         constexpr static size_t solist_realpath_offset = 0x174;
       #endif
 
@@ -30,6 +36,10 @@ namespace SoList  {
 
       inline size_t get_size() {
         return *(size_t *) ((uintptr_t) this + solist_size_offset);
+      }
+
+      inline ElfW(Addr) get_base() {
+        return *(ElfW(Addr) *) ((uintptr_t) this + solist_base_offset);
       }
 
       inline const char *get_path() {
@@ -213,5 +223,44 @@ namespace SoList  {
     }
 
     return true;
+  }
+
+  static std::vector<lsplt::MapInfo> FillLSPltMaps() {
+    if (solist == NULL && !Initialize()) {
+      LOGE("Failed to initialize solist");
+
+      return {};
+    }
+
+    std::vector<lsplt::MapInfo> maps;
+
+    for (SoInfo *iter = solist; iter; iter = iter->get_next()) {
+      if (iter->get_path() == NULL || iter->get_name() == NULL || iter->get_path()[0] == '[')
+        continue;
+
+      struct stat st;
+      if (stat(iter->get_path(), &st) == -1) {
+        LOGE("Failed to stat %s", iter->get_path());
+
+        continue;
+      }
+
+      uintptr_t start = (uintptr_t)iter->get_base();
+      size_t sz = iter->get_size();
+
+      maps.emplace_back(lsplt::MapInfo {
+        .start = start,
+        .end = (uintptr_t)(start + sz),
+        .perms = PROT_READ | PROT_WRITE | PROT_EXEC, /* INFO: Not important, just spoof them. */
+        .is_private = true,
+        .offset = 0,
+        /* INFO: May need fix as it seems to get compiler errors even though type is correct. */
+        .dev = (dev_t)st.st_dev,
+        .inode = (ino_t)st.st_ino,
+        .path = iter->get_path()
+      });
+    }
+
+    return maps;
   }
 }

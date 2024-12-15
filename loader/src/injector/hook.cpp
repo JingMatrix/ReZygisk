@@ -783,11 +783,8 @@ void hook_functions() {
 
     ino_t android_runtime_inode = 0;
     dev_t android_runtime_dev = 0;
-    /* TODO by ThePedroo: Implement injection via native bridge */
-    // ino_t native_bridge_inode = 0;
-    // dev_t native_bridge_dev = 0;
 
-    cached_map_infos = lsplt::MapInfo::Scan();
+    cached_map_infos = SoList::FillLSPltMaps();
     for (auto &map : cached_map_infos) {
         if (map.path.ends_with("libandroid_runtime.so")) {
             android_runtime_inode = map.inode;
