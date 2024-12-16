@@ -33,6 +33,8 @@ typedef struct AndroidDlextinfo {
   AndroidNamespace *library_namespace;
 } AndroidDlextinfo;
 
+extern void *android_dlopen_ext(const char *filename, int flags, const AndroidDlextinfo *extinfo);
+
 typedef AndroidNamespace *(*AndroidCreateNamespaceFn)(
   const char *name,
   const char *ld_library_path,
@@ -42,8 +44,6 @@ typedef AndroidNamespace *(*AndroidCreateNamespaceFn)(
   AndroidNamespace *parent,
   const void *caller_addr
 );
-
-extern void *android_dlopen_ext(const char *filename, int flags, const AndroidDlextinfo *extinfo);
 
 void *android_dlopen(char *path, int flags) {
   char *dir = dirname(path);
