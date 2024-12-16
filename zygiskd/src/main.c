@@ -29,7 +29,7 @@ int main(int argc, char *argv[]) {
       }
 
       int fd = atoi(argv[2]);
-      companion_entry(fd);
+      entry(fd);
 
       return 0;
     }

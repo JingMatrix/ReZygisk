@@ -1,6 +1,6 @@
 #ifndef COMPANION_H
 #define COMPANION_H
 
-void companion_entry(int fd);
+void entry(int fd);
 
 #endif /* COMPANION_H */
