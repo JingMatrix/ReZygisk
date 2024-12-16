@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstring>
 #include <dlfcn.h>
 #include "api.hpp"
 
@@ -209,7 +210,7 @@ case 5:                                \
         int getModuleDir() const;
         void setOption(zygisk::Option opt);
         static uint32_t getFlags();
-        void tryUnload() const { if (unload) dlclose(handle); }
+        bool tryUnload() const { return unload && dlclose(handle) == 0; };
         void clearApi() { memset(&api, 0, sizeof(api)); }
         int getId() const { return id; }
 

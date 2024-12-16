@@ -98,6 +98,9 @@ namespace SoList  {
   static SoInfo *somain = NULL;
   static SoInfo **sonext = NULL;
 
+  static uint64_t *g_module_load_counter = NULL;
+  static uint64_t *g_module_unload_counter = NULL;
+
   static bool Initialize();
 
   template<typename T>
@@ -125,6 +128,27 @@ namespace SoList  {
       }
     }
     return path_found;
+  }
+
+  static void ResetCounters(size_t load, size_t unload) {
+    if (solist == NULL && !Initialize()) {
+      LOGE("Failed to initialize solist");
+      return;
+    }
+    if (g_module_load_counter == NULL || g_module_unload_counter == NULL) {
+      LOGI("g_module counters not defined, skip reseting them");
+      return;
+    }
+    auto loaded_modules = *g_module_load_counter;
+    auto unloaded_modules = *g_module_unload_counter;
+    if (loaded_modules >= load) {
+      *g_module_load_counter = loaded_modules - load;
+      LOGD("reset g_module_load_counter to %zu", (size_t) *g_module_load_counter);
+    }
+    if (unloaded_modules >= unload) {
+      *g_module_unload_counter = unloaded_modules - unload;
+      LOGD("reset g_module_unload_counter to %zu", (size_t) *g_module_unload_counter);
+    }
   }
 
   static bool Initialize() {
@@ -179,11 +203,7 @@ namespace SoList  {
     LOGD("found symbol sonext");
 
     SoInfo *vdso = getStaticPointer<SoInfo>(linker, vdso_sym_name);
-    if (vdso != NULL) {
-        LOGD("found symbol vdso");
-    } else {
-        LOGD("symbol vdso is missing");
-    }
+    if (vdso != NULL) LOGD("found symbol vdso");
 
     SoInfo::get_realpath_sym = reinterpret_cast<decltype(SoInfo::get_realpath_sym)>(linker.getSymbAddress("__dl__ZNK6soinfo12get_realpathEv"));
     if (SoInfo::get_realpath_sym == NULL) return false;
@@ -197,6 +217,11 @@ namespace SoList  {
     if (SoInfo::soinfo_free == NULL) return false;
     LOGD("found symbol soinfo_free");
 
+    g_module_load_counter = reinterpret_cast<decltype(g_module_load_counter)>(linker.getSymbAddress("__dl__ZL21g_module_load_counter"));
+    if (g_module_load_counter != NULL) LOGD("found symbol g_module_load_counter");
+
+    g_module_unload_counter = reinterpret_cast<decltype(g_module_unload_counter)>(linker.getSymbAddress("__dl__ZL23g_module_unload_counter"));
+    if (g_module_unload_counter != NULL) LOGD("found symbol g_module_unload_counter");
 
     for (size_t i = 0; i < 1024 / sizeof(void *); i++) {
       auto possible_field = (uintptr_t) solist + i * sizeof(void *);

@@ -578,16 +578,21 @@ void ZygiskContext::run_modules_pre() {
 
 void ZygiskContext::run_modules_post() {
     flags[POST_SPECIALIZE] = true;
+
+    size_t modules_unloaded = 0;
     for (const auto &m : modules) {
         if (flags[APP_SPECIALIZE]) {
             m.postAppSpecialize(args.app);
         } else if (flags[SERVER_FORK_AND_SPECIALIZE]) {
             m.postServerSpecialize(args.server);
         }
-        m.tryUnload();
+        if (m.tryUnload()) modules_unloaded++;
     }
 
-    clean_trace("jit-cache-zygisk", true);
+    if (modules.size() > 0) {
+        LOGD("modules unloaded: %zu/%zu", modules_unloaded, modules.size());
+        clean_trace("jit-cache-zygisk", modules.size(), modules_unloaded, true);
+    }
 }
 
 /* Zygisksu changed: Load module fds */
@@ -746,12 +751,12 @@ static void hook_register(dev_t dev, ino_t inode, const char *symbol, void *new_
 #define PLT_HOOK_REGISTER(DEV, INODE, NAME) \
     PLT_HOOK_REGISTER_SYM(DEV, INODE, #NAME, NAME)
 
-void clean_trace(const char* path, bool spoof_maps) {
+void clean_trace(const char* path, size_t load, size_t unload, bool spoof_maps) {
     LOGD("cleaning trace for path %s", path);
 
-    if (!SoList::DropSoPath(path) || !spoof_maps) {
-        return;
-    }
+    if (load > 0 || unload >0) SoList::ResetCounters(load, unload);
+    bool path_found = SoList::DropSoPath(path);
+    if (!path_found || !spoof_maps) return;
 
     LOGD("spoofing virtual maps for %s", path);
     // spoofing map names is futile in Android, we do it simply
