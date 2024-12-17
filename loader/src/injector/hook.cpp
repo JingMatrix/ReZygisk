@@ -190,6 +190,12 @@ DCL_HOOK_FUNC(int, pthread_attr_setstacksize, void *target, size_t size) {
         unhook_functions();
         cached_map_infos.clear();
         if (should_unmap_zygisk) {
+            struct stat st;
+            stat("/proc/self/maps", &st);
+
+            int atime = st.st_atime;
+            LOGI("atime BEFORE munmap /proc/self/maps: %d", atime);
+
             // Because both `pthread_attr_setstacksize` and `dlclose` have the same function signature,
             // we can use `musttail` to let the compiler reuse our stack frame and thus
             // `dlclose` will directly return to the caller of `pthread_attr_setstacksize`.
@@ -822,7 +828,16 @@ static void hook_unloader() {
     ino_t art_inode = 0;
     dev_t art_dev = 0;
 
-    for (auto &map : zygiskd::RequestMaps()) {
+    struct stat st;
+    if (stat("/proc/self/maps", &st) != 0) {
+        LOGE("failed to stat /proc/self/maps");
+        return;
+    }
+
+    int atime = st.st_atime;
+    LOGI("atime of /proc/self/maps: %d", atime);
+
+    for (auto &map : lsplt::MapInfo::Scan()) {
         if (map.path.ends_with("/libart.so")) {
             art_inode = map.inode;
             art_dev = map.dev;
@@ -838,6 +853,14 @@ static void hook_unloader() {
     }
     PLT_HOOK_REGISTER(art_dev, art_inode, pthread_attr_setstacksize);
     hook_commit();
+
+    if (stat("/proc/self/maps", &st) != 0) {
+        LOGE("failed to stat /proc/self/maps");
+        return;
+    }
+
+    int atime_after = st.st_atime;
+    LOGI("atime of /proc/self/maps after scan: %d", atime_after);
 }
 
 static void unhook_functions() {
