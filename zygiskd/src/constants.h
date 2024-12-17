@@ -34,7 +34,8 @@ enum DaemonSocketAction {
   GetModuleDir,
   ZygoteRestart,
   SystemServerStarted,
-  RequestPathsToUmount
+  RequestPathsToUmount,
+  RequestMaps
 };
 
 enum ProcessFlags: uint32_t {

@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <lsplt.hpp>
 
 #include "daemon.h"
 #include "dl.h"
@@ -283,5 +284,36 @@ namespace zygiskd {
     close(fd);
 
     return targets;
+  }
+
+  std::vector<lsplt::MapInfo> RequestMaps() {
+    std::vector<lsplt::MapInfo> maps;
+    int fd = Connect(1);
+    if (fd == -1) {
+      PLOGE("RequestMaps");
+
+      return maps;
+    }
+
+    socket_utils::write_u8(fd, (uint8_t) SocketAction::RequestMaps);
+    socket_utils::write_u32(fd, getpid());
+
+    size_t len = socket_utils::read_usize(fd);
+    for (size_t i = 0; i < len; i++) {
+      uintptr_t start = socket_utils::read_uintptr_t(fd);
+      uintptr_t end = socket_utils::read_uintptr_t(fd);  
+      uint8_t perms = socket_utils::read_u8(fd);
+      uint8_t is_private = socket_utils::read_u8(fd);
+      uintptr_t offset = socket_utils::read_uintptr_t(fd);
+      dev_t dev = socket_utils::read_dev_t(fd);
+      ino_t inode = socket_utils::read_ino_t(fd);
+      std::string path = socket_utils::read_string(fd);
+
+      maps.emplace_back(start, end, perms, is_private, offset, dev, inode, path);
+    }
+
+    close(fd);
+
+    return maps;
   }
 }

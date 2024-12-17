@@ -792,9 +792,12 @@ void hook_functions() {
     // ino_t native_bridge_inode = 0;
     // dev_t native_bridge_dev = 0;
 
-    cached_map_infos = lsplt::MapInfo::Scan();
+    cached_map_infos = zygiskd::RequestMaps();
     for (auto &map : cached_map_infos) {
         if (map.path.ends_with("libandroid_runtime.so")) {
+            LOGI("hooking libandroid_runtime.so [%zu:%lu]", map.dev, map.inode);
+            LOGI("Size of libandroid_runtime.so: %zu", map.end - map.start);
+            
             android_runtime_inode = map.inode;
             android_runtime_dev = map.dev;
 
@@ -819,7 +822,7 @@ static void hook_unloader() {
     ino_t art_inode = 0;
     dev_t art_dev = 0;
 
-    for (auto &map : cached_map_infos) {
+    for (auto &map : zygiskd::RequestMaps()) {
         if (map.path.ends_with("/libart.so")) {
             art_inode = map.inode;
             art_dev = map.dev;

@@ -796,6 +796,60 @@ void zygiskd_start(char *restrict argv[]) {
 
         break;
       }
+      case RequestMaps: {
+        pid_t process_pid = 0;
+        ssize_t ret = read_uint32_t(client_fd, (uint32_t *)&process_pid);
+        ASSURE_SIZE_READ_BREAK("RequestMaps", "process_pid", ret, sizeof(process_pid));
+
+        LOGI("Requesting maps for process PID: %d\n", process_pid);
+
+        char pid_str[32];
+        snprintf(pid_str, sizeof(pid_str), "%d", process_pid);
+
+        struct maps *maps = parse_maps(pid_str);
+        if (maps == NULL) {
+          LOGE("Failed parsing maps.\n");
+
+          break;
+        }
+
+        LOGI("Sending maps to client.\n");
+
+        size_t maps_len = maps->size;
+        ret = write_size_t(client_fd, maps_len);
+
+        LOGI("Maps length: %zu\n", maps_len);
+
+        for (size_t i = 0; i < maps_len; i++) {
+          struct map *map = &maps->maps[i];
+
+          ret = write_uintptr_t(client_fd, map->start);
+          ASSURE_SIZE_WRITE_BREAK("RequestMaps", "start", ret, sizeof(map->start));
+
+          ret = write_uintptr_t(client_fd, map->end);
+          ASSURE_SIZE_WRITE_BREAK("RequestMaps", "end", ret, sizeof(map->end));
+
+          ret = write_uint8_t(client_fd, map->perms);
+          ASSURE_SIZE_WRITE_BREAK("RequestMaps", "perms", ret, sizeof(map->perms));
+
+          ret = write_uint8_t(client_fd, map->is_private);
+          ASSURE_SIZE_WRITE_BREAK("RequestMaps", "is_private", ret, sizeof(map->is_private));
+
+          ret = write_uintptr_t(client_fd, map->offset);
+          ASSURE_SIZE_WRITE_BREAK("RequestMaps", "offset", ret, sizeof(map->offset));
+
+          ret = write_dev_t(client_fd, map->dev);
+          ASSURE_SIZE_WRITE_BREAK("RequestMaps", "dev", ret, sizeof(map->dev));
+
+          ret = write_ino_t(client_fd, map->inode);
+          ASSURE_SIZE_WRITE_BREAK("RequestMaps", "inode", ret, sizeof(map->inode));
+
+          ret = write_string(client_fd, map->path);
+          ASSURE_SIZE_WRITE_BREAK("RequestMaps", "path", ret, strlen(map->path));
+        }
+
+        free_maps(maps);
+      }
     }
 
     if (action != RequestCompanionSocket && action != RequestLogcatFd) close(client_fd);

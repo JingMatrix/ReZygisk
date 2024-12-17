@@ -36,24 +36,12 @@ void revert_unmount_ksu() {
 }
 
 void revert_unmount_magisk() {
-    // std::vector<std::string> targets;
+    std::vector<std::string> targets = zygiskd::RequestPathsToUmount();
 
-    // // Unmount dummy skeletons and MAGISKTMP
-    // // since mirror nodes are always mounted under skeleton, we don't have to specifically unmount
-    // for (auto& info: parse_mount_info("self")) {
-    //     if (info.source == "magisk" || info.source == "worker" || // magisktmp tmpfs
-    //         info.root.starts_with("/adb/modules")) { // bind mount from data partition
-    //         targets.push_back(info.target);
-    //     }
-    //     // Unmount everything mounted to /data/adb
-    //     if (info.target.starts_with("/data/adb")) {
-    //         targets.emplace_back(info.target);
-    //     }
-    // }
-
-    // for (auto& s: reversed(targets)) {
-    //     lazy_unmount(s.data());
-    // }
+    // Do unmount
+    for (auto& s: reversed(targets)) {
+        lazy_unmount(s.data());
+    }
 }
 
 void revert_unmount_apatch() {

@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <vector>
 
+#include "lsplt.hpp"
+
 #if defined(__LP64__)
 # define LP_SELECT(lp32, lp64) lp64
 #else
@@ -80,7 +82,8 @@ namespace zygiskd {
         GetModuleDir,
         ZygoteRestart,
         SystemServerStarted,
-        RequestPathsToUmount
+        RequestPathsToUmount,
+        RequestMaps
     };
 
     void Init(const char *path);
@@ -106,4 +109,6 @@ namespace zygiskd {
     void GetInfo(struct zygote_info *info);
 
     std::vector<std::string> RequestPathsToUmount();
+
+    std::vector<lsplt::MapInfo> RequestMaps();
 }

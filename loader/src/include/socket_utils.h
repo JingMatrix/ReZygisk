@@ -15,6 +15,12 @@ namespace socket_utils {
 
     uint32_t read_u32(int fd);
 
+    ino_t read_ino_t(int fd);
+
+    dev_t read_dev_t(int fd);
+
+    uintptr_t read_uintptr_t(int fd);
+
     size_t read_usize(int fd);
 
     std::string read_string(int fd);

@@ -92,6 +92,12 @@ read_func_def(uint32_t);
 write_func_def(uint8_t);
 read_func_def(uint8_t);
 
+write_func_def(uintptr_t);
+
+write_func_def(dev_t);
+
+write_func_def(ino_t);
+
 ssize_t write_string(int fd, const char *restrict str);
 
 ssize_t read_string(int fd, char *restrict str, size_t len);
@@ -129,5 +135,25 @@ struct mounts_info {
 struct mounts_info *parse_mount_info(const char *pid);
 
 void free_mounts_info(struct mounts_info *mounts);
+
+struct map {
+  uintptr_t start;
+  uintptr_t end;
+  uint8_t perms;
+  bool is_private;
+  uintptr_t offset;
+  dev_t dev;
+  ino_t inode;
+  const char *path;
+};
+
+struct maps {
+  struct map *maps;
+  size_t size;
+};
+
+struct maps *parse_maps(const char *pid);
+
+void free_maps(struct maps *maps);
 
 #endif /* UTILS_H */

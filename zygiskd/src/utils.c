@@ -8,6 +8,9 @@
 #include <sys/wait.h>
 #include <sys/un.h>
 #include <errno.h>
+#include <inttypes.h>
+#include <ctype.h>
+#include <sys/mman.h>
 #include <sys/sysmacros.h>
 
 #include <unistd.h>
@@ -285,6 +288,12 @@ read_func(uint32_t)
 write_func(uint8_t)
 read_func(uint8_t)
 
+write_func(uintptr_t)
+
+write_func(dev_t)
+
+write_func(ino_t)
+
 ssize_t write_string(int fd, const char *restrict str) {
   size_t len[1];
   len[0] = strlen(str);
@@ -472,7 +481,7 @@ char *artificial_fgets(char *buffer, size_t buffer_size, int fd) {
     buffer[i] = c;
 
     if (c == '\n') {
-      buffer[i + 1] = '\0';
+      buffer[i] = '\0';
 
       return buffer;
     }
@@ -589,4 +598,83 @@ void free_mounts_info(struct mounts_info *mounts) {
 
   free(mounts->mounts);
   free(mounts);
+}
+
+struct maps *parse_maps(const char *pid) {
+  char path[PATH_MAX];
+  snprintf(path, sizeof(path), "/proc/%s/maps", pid);
+
+  int fd = open(path, O_RDONLY | O_NOATIME);
+  if (fd < 0) {
+    LOGE("Failed to open %s", path);
+
+    return NULL;
+  }
+
+  struct maps *maps = (struct maps *)malloc(sizeof(struct maps));
+
+  char line[4096 * 2];
+  size_t i = 0;
+
+  while (artificial_fgets(line, sizeof(line), fd) != NULL) {
+    uintptr_t addr_start = 0;
+    uintptr_t addr_end = 0;
+    uintptr_t addr_offset = 0;
+    ino_t inode = 0;
+    unsigned int dev_major = 0;
+    unsigned int dev_minor = 0;
+    char permissions[5] = "";
+
+    int path_offset;
+    sscanf(line, "%" PRIxPTR "-%" PRIxPTR " %4s %" PRIxPTR " %x:%x %lu %n%*s", &addr_start,
+                &addr_end, permissions, &addr_offset, &dev_major, &dev_minor, &inode,
+                &path_offset);
+
+    while (path_offset < (int)strlen(line) && isspace(line[path_offset])) path_offset++;
+
+    maps->maps = (struct map *)realloc(maps->maps, (i + 1) * sizeof(struct map));
+    if (!maps->maps) {
+      LOGE("Failed to allocate memory for maps->maps");
+
+      close(fd);
+      free(maps);
+
+      return NULL;
+    }
+
+    maps->maps[i].start = addr_start;
+    maps->maps[i].end = addr_end;
+    maps->maps[i].offset = addr_offset;
+
+    maps->maps[i].perms = 0;
+    if (permissions[0] == 'r') maps->maps[i].perms |= PROT_READ;
+    if (permissions[1] == 'w') maps->maps[i].perms |= PROT_WRITE;
+    if (permissions[2] == 'x') maps->maps[i].perms |= PROT_EXEC;
+
+    maps->maps[i].is_private = permissions[3] == 'p';
+    maps->maps[i].dev = makedev(dev_major, dev_minor);
+    maps->maps[i].inode = inode;
+    maps->maps[i].path = strdup(line + path_offset);
+
+    i++;
+  }
+
+  close(fd);
+
+  maps->size = i;
+
+  return maps;
+}
+
+void free_maps(struct maps *maps) {
+  if (!maps) {
+    return;
+  }
+
+  for (size_t i = 0; i < maps->size; i++) {
+    free((void *)maps->maps[i].path);
+  }
+
+  free(maps->maps);
+  free(maps);
 }

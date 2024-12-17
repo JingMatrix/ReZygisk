@@ -66,6 +66,19 @@ namespace socket_utils {
     return read_exact_or<uint32_t>(fd, 0);
   }
 
+  ino_t read_ino_t(int fd) {
+    return read_exact_or<ino_t>(fd, 0);
+  }
+
+  dev_t read_dev_t(int fd) {
+    return read_exact_or<dev_t>(fd, 0);
+  }
+
+  uintptr_t read_uintptr_t(int fd) {
+    return read_exact_or<uintptr_t>(fd, 0);
+  }
+
+
   size_t read_usize(int fd) {
     return read_exact_or<size_t>(fd, 0);
   }
