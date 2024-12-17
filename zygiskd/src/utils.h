@@ -104,4 +104,30 @@ int non_blocking_execv(const char *restrict file, char *const argv[]);
 
 void stringify_root_impl_name(struct root_impl impl, char *restrict output);
 
+struct mount_info {
+  unsigned int id;
+  unsigned int parent;
+  dev_t device;
+  const char *root;
+  const char *target;
+  const char *vfs_option;
+  struct {
+    unsigned int shared;
+    unsigned int master;
+    unsigned int propagate_from;
+  } optional;
+  const char *type;
+  const char *source;
+  const char *fs_option;
+};
+
+struct mounts_info {
+  struct mount_info *mounts;
+  size_t size;
+};
+
+struct mounts_info *parse_mount_info(const char *pid);
+
+void free_mounts_info(struct mounts_info *mounts);
+
 #endif /* UTILS_H */

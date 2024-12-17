@@ -8,6 +8,7 @@
 #include <sys/wait.h>
 #include <sys/un.h>
 #include <errno.h>
+#include <sys/sysmacros.h>
 
 #include <unistd.h>
 #include <linux/limits.h>
@@ -455,4 +456,137 @@ void stringify_root_impl_name(struct root_impl impl, char *restrict output) {
       break;
     }
   }
+}
+
+char *artificial_fgets(char *buffer, size_t buffer_size, int fd) {
+  size_t i;
+  char c;
+
+  for (i = 0; i < buffer_size - 1; i++) {
+    if (read(fd, &c, 1) != 1) {
+      buffer[i] = '\0';
+
+      return NULL;
+    }
+
+    buffer[i] = c;
+
+    if (c == '\n') {
+      buffer[i + 1] = '\0';
+
+      return buffer;
+    }
+  }
+
+  buffer[i] = '\0';
+
+  return buffer;
+}
+
+struct mounts_info *parse_mount_info(const char *pid) {
+  char path[PATH_MAX];
+  snprintf(path, sizeof(path), "/proc/%s/mountinfo", pid);
+
+  int fd = open(path, O_RDONLY | O_NOATIME);
+  if (fd < 0) {
+    LOGE("Failed to open %s", path);
+
+    return NULL;
+  }
+
+  struct mounts_info *mounts = (struct mounts_info *)malloc(sizeof(struct mounts_info));
+
+  char line[4096 * 2];
+  size_t i = 0;
+
+  while (artificial_fgets(line, sizeof(line), fd) != NULL) {
+    int root_start = 0, root_end = 0;
+    int target_start = 0, target_end = 0;
+    int vfs_option_start = 0, vfs_option_end = 0;
+    int type_start = 0, type_end = 0;
+    int source_start = 0, source_end = 0;
+    int fs_option_start = 0, fs_option_end = 0;
+    int optional_start = 0, optional_end = 0;
+    unsigned int id, parent, maj, min;
+
+    sscanf(line,
+            "%u "           // (1) id
+            "%u "           // (2) parent
+            "%u:%u "        // (3) maj:min
+            "%n%*s%n "      // (4) mountroot
+            "%n%*s%n "      // (5) target
+            "%n%*s%n"       // (6) vfs options (fs-independent)
+            "%n%*[^-]%n - " // (7) optional fields
+            "%n%*s%n "      // (8) FS type
+            "%n%*s%n "      // (9) source
+            "%n%*s%n",      // (10) fs options (fs specific)
+            &id, &parent, &maj, &min, &root_start, &root_end, &target_start,
+            &target_end, &vfs_option_start, &vfs_option_end,
+            &optional_start, &optional_end, &type_start, &type_end,
+            &source_start, &source_end, &fs_option_start, &fs_option_end);
+
+    mounts->mounts = (struct mount_info *)realloc(mounts->mounts, (i + 1) * sizeof(struct mount_info));
+    if (!mounts->mounts) {
+      LOGE("Failed to allocate memory for mounts->mounts");
+
+      close(fd);
+      free_mounts_info(mounts);
+
+      return NULL;
+    }
+
+    unsigned int shared = 0;
+    unsigned int master = 0;
+    unsigned int propagate_from = 0;
+    if (strstr(line + optional_start, "shared:")) {
+      shared = atoi(strstr(line + optional_start, "shared:") + 7);
+    }
+
+    if (strstr(line + optional_start, "master:")) {
+      master = atoi(strstr(line + optional_start, "master:") + 7);
+    }
+
+    if (strstr(line + optional_start, "propagate_from:")) {
+      propagate_from = atoi(strstr(line + optional_start, "propagate_from:") + 15);
+    }
+
+    mounts->mounts[i].id = id;
+    mounts->mounts[i].parent = parent;
+    mounts->mounts[i].device = makedev(maj, min);
+    mounts->mounts[i].root = strndup(line + root_start, root_end - root_start);
+    mounts->mounts[i].target = strndup(line + target_start, target_end - target_start);
+    mounts->mounts[i].vfs_option = strndup(line + vfs_option_start, vfs_option_end - vfs_option_start);
+    mounts->mounts[i].optional.shared = shared;
+    mounts->mounts[i].optional.master = master;
+    mounts->mounts[i].optional.propagate_from = propagate_from;
+    mounts->mounts[i].type = strndup(line + type_start, type_end - type_start);
+    mounts->mounts[i].source = strndup(line + source_start, source_end - source_start);
+    mounts->mounts[i].fs_option = strndup(line + fs_option_start, fs_option_end - fs_option_start);
+
+    i++;
+  }
+
+  close(fd);
+
+  mounts->size = i;
+
+  return mounts;
+}
+
+void free_mounts_info(struct mounts_info *mounts) {
+  if (!mounts) {
+    return;
+  }
+
+  for (size_t i = 0; i < mounts->size; i++) {
+    free((void *)mounts->mounts[i].root);
+    free((void *)mounts->mounts[i].target);
+    free((void *)mounts->mounts[i].vfs_option);
+    free((void *)mounts->mounts[i].type);
+    free((void *)mounts->mounts[i].source);
+    free((void *)mounts->mounts[i].fs_option);
+  }
+
+  free(mounts->mounts);
+  free(mounts);
 }

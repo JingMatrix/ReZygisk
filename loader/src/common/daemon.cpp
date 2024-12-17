@@ -260,4 +260,28 @@ namespace zygiskd {
       close(fd);
     } else info->running = false;
   }
+
+  std::vector<std::string> RequestPathsToUmount() {
+    std::vector<std::string> targets;
+    int fd = Connect(1);
+    if (fd == -1) {
+      PLOGE("RequestPathsToUmount");
+
+      return targets;
+    }
+
+    socket_utils::write_u8(fd, (uint8_t) SocketAction::RequestPathsToUmount);
+
+    socket_utils::write_u32(fd, getpid());
+
+    size_t len = socket_utils::read_usize(fd);
+    for (size_t i = 0; i < len; i++) {
+      std::string target = socket_utils::read_string(fd);
+      targets.push_back(target);
+    }
+
+    close(fd);
+
+    return targets;
+  }
 }

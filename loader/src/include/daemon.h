@@ -80,6 +80,7 @@ namespace zygiskd {
         GetModuleDir,
         ZygoteRestart,
         SystemServerStarted,
+        RequestPathsToUmount
     };
 
     void Init(const char *path);
@@ -103,4 +104,6 @@ namespace zygiskd {
     void SystemServerStarted();
 
     void GetInfo(struct zygote_info *info);
+
+    std::vector<std::string> RequestPathsToUmount();
 }

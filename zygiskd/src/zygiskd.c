@@ -701,6 +701,101 @@ void zygiskd_start(char *restrict argv[]) {
 
         break;
       }
+      case RequestPathsToUmount: {
+        LOGI("Requesting paths to unmount.\n");
+
+        pid_t process_pid = 0;
+        ssize_t ret = read_uint32_t(client_fd, (uint32_t *)&process_pid);
+
+        LOGI("Process PID: %d\n", process_pid);
+
+        const char *MODULE_DIR = "/data/adb/modules";
+        const char *KSU_OVERLAY_SOURCE = "KSU";
+        // const char *AP_OVERLAY_SOURCE = "APatch";
+        const char *DEVICE_PARTITIONS[] = {
+          "/system",
+          "/vendor",
+          "/product",
+          "/system_ext",
+          "/odm",
+          "/oem",
+          NULL
+        };
+
+        char pid_str[32];
+        snprintf(pid_str, sizeof(pid_str), "%d", process_pid);
+
+        struct mounts_info *info = parse_mount_info(pid_str);
+
+        char ksu_loop[PATH_MAX] = { 0 };
+
+        char targets[32][PATH_MAX] = { 0 };
+        size_t targets_len = 0;
+
+        if (impl.impl == KernelSU) {
+          for (size_t i = 0; i < info->size; i++) {
+            struct mount_info *mount = &info->mounts[i];
+
+            if (strcmp(mount->target, MODULE_DIR) == 0) {
+              strcpy(ksu_loop, mount->source);
+
+              continue;
+            }
+
+            // Unmount everything mounted to /data/adb
+            if (strncmp(mount->target, "/data/adb", strlen("/data/adb")) == 0)
+              strcpy(targets[targets_len++], mount->target);
+
+            // Unmount ksu overlays
+            if (strcmp(mount->type, "overlay") == 0 && strcmp(mount->source, KSU_OVERLAY_SOURCE) == 0) {
+              for (int j = 0; DEVICE_PARTITIONS[j] != NULL; j++) {  
+                if (strcmp(mount->target, DEVICE_PARTITIONS[j]) == 0)
+                  strcpy(targets[targets_len++], mount->target);
+              }
+            }
+
+            if (strcmp(mount->type, "tmpfs") == 0 && strcmp(mount->source, KSU_OVERLAY_SOURCE) == 0)
+              strcpy(targets[targets_len++], mount->target);
+          }
+
+          for (size_t i = 0; i < info->size; i++) {
+            struct mount_info *mount = &info->mounts[i];
+
+            if (strcmp(mount->source, ksu_loop) == 0 && strcmp(mount->target, MODULE_DIR) != 0)
+              strcpy(targets[targets_len++], mount->target);
+          }
+        } else if (impl.impl == Magisk) {
+          // Unmount dummy skeletons and MAGISKTMP
+          for (size_t i = 0; i < info->size; i++) {
+            struct mount_info *mount = &info->mounts[i];
+
+            if (strcmp(mount->source, "magisk") == 0 || strcmp(mount->source, "worker") == 0 || strncmp(mount->root, "/adb/modules", strlen("/adb/modules")) == 0)
+              strcpy(targets[targets_len++], mount->target);
+
+            // Unmount everything mounted to /data/adb
+            if (strncmp(mount->target, "/data/adb", strlen("/data/adb")) == 0)
+              strcpy(targets[targets_len++], mount->target);
+          }
+        }
+
+        free_mounts_info(info);
+
+        ret = write_size_t(client_fd, targets_len);
+        ASSURE_SIZE_WRITE_BREAK("RequestPathsToUmount", "targets_len", ret, sizeof(targets_len));
+
+        for (size_t i = 0; i < targets_len; i++) {
+          LOGI("Sending target path: %s\n", targets[i]);
+
+          ret = write_string(client_fd, targets[i]);
+          if (ret == -1) {
+            LOGE("Failed writing target path.\n");
+
+            break;
+          }
+        }
+
+        break;
+      }
     }
 
     if (action != RequestCompanionSocket && action != RequestLogcatFd) close(client_fd);
